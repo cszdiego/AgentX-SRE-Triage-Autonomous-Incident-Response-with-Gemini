@@ -87,9 +87,9 @@ Second report for same Redis outage → AI detects >70% similarity → DUPLICATE
 | Frontend | Vite 6 + React 18 + Tailwind CSS (dark industrial theme) |
 | Security | 15-pattern regex guardrail engine + `sanitize_for_prompt()` + rate limiting (10 req/min) |
 | Ticketing | **Jira Cloud REST API v3** — real issues created per incident |
-| Notifications | **Slack Incoming Webhook** (real) + **SMTP email** (Mailhog for demo) |
+| Notifications | **Slack Incoming Webhook** (real) + **Gmail SMTP_SSL** (HTML email, App Password) |
 | eShop Context | Microsoft eShop .NET microservices (RAG from real `.cs` source files) |
-| Containers | Docker Compose — postgres + mailhog + backend + frontend/nginx |
+| Containers | Docker Compose — postgres + backend + frontend/nginx |
 
 ---
 

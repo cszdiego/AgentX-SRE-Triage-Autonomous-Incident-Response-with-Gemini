@@ -109,6 +109,7 @@ def resolve_ticket(ticket_id: str, body: TicketResolve):
             reporter_email=ticket["reporter_email"],
             reporter_name=ticket.get("reporter_name"),
             resolution_note=body.resolution_note,
+            jira_key=ticket.get("jira_key"),
         )
 
     logger.info("Ticket %s resolved | incident=%s", ticket["ticket_key"], incident_id)

@@ -433,8 +433,9 @@ Produce the JSON triage output now."""
             reporter_email=reporter_email,
             jira_key=jira_key,
             jira_url=jira_url,
+            root_cause=triage.root_cause,
         )
-        await emit(incident_id, f"Email dispatched via SMTP → {settings.SRE_TEAM_EMAIL}", stage="notify", icon="mail")
+        await emit(incident_id, f"Email dispatched via Gmail → {settings.SRE_TEAM_EMAIL}", stage="notify", icon="mail")
         result["notifications"] = notif_result
         tc.metadata.update(notif_result)
 

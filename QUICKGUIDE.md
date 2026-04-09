@@ -1,4 +1,4 @@
-# Quick Guide — AgentX SRE-Triage v1.1
+# Quick Guide — AgentX SRE-Triage v1.2
 
 Get the full system running in under 5 minutes.
 
@@ -11,6 +11,7 @@ Get the full system running in under 5 minutes.
 - **Langfuse account** — free at [us.cloud.langfuse.com](https://us.cloud.langfuse.com) (create a project, copy keys)
 - **Slack Incoming Webhook** — create at [api.slack.com/apps](https://api.slack.com/apps) → Your App → Incoming Webhooks
 - **Jira API token** — create at [id.atlassian.com/manage-profile/security](https://id.atlassian.com/manage-profile/security) → API tokens
+- **Gmail App Password** — enable 2FA, then generate at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
 
 ---
 
@@ -48,12 +49,16 @@ JIRA_USER_EMAIL=your-email@example.com
 JIRA_API_TOKEN=ATATT3x...
 JIRA_PROJECT_KEY=SRE              # Your Jira project key prefix
 
-# Email (auto-configured — Mailhog runs in Docker)
-SMTP_HOST=mailhog
-SMTP_PORT=1025
+# Gmail SMTP_SSL (real email delivery)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=xxxx xxxx xxxx xxxx  # 16-char App Password (no spaces)
+SMTP_FROM=your-email@gmail.com
+SRE_TEAM_EMAIL=your-team@example.com
 ```
 
-> **Note:** Langfuse, Slack, and Jira all fall back gracefully if not configured. The pipeline never fails due to a missing integration.
+> **Note:** Langfuse, Slack, Jira, and Gmail all fall back gracefully if not configured. The triage pipeline never fails due to a missing integration.
 
 ---
 
@@ -78,7 +83,6 @@ sre_backend  | INFO:     Application startup complete.
 |-----|-----------------|
 | http://localhost:3000 | **Dashboard** — all incidents, stats, severity filter |
 | http://localhost:3000/report | **Report Incident** — submit text, log, image, or video |
-| http://localhost:8025 | **Mailhog** — captured emails (team alerts + reporter notifications) |
 | http://localhost:8000/api/v1/health/metrics | **Live metrics** — incidents, tokens, guardrail blocks, Jira count |
 | http://localhost:8000/docs | **API Docs** — Swagger UI for all endpoints |
 | http://localhost:8000/health | **Health check** — DB + model status |
@@ -101,9 +105,9 @@ You'll be redirected to the incident detail page immediately. The **Agent Reason
 - Root cause referencing `RedisBasketRepository.cs`
 - Runbook with numbered remediation steps
 - Internal ticket `SRE-XXXX` created
-- **Jira issue created** (e.g., `SRE-42`) with a direct link in the UI
+- **Jira issue created** (e.g., `KAN-42`) with a direct link in the UI
 - **Slack alert** in `#sre-alerts` with severity, service, and Jira link
-- **Email** visible in Mailhog at http://localhost:8025
+- **HTML email** delivered to the configured Gmail inbox (professional dark theme)
 
 ---
 
@@ -188,6 +192,6 @@ Returns:
 | Dashboard shows no incidents | Check backend logs: `docker compose logs backend` |
 | Jira issue not created | Check `JIRA_API_TOKEN` and `JIRA_PROJECT_KEY` in `.env` — see backend logs for error details |
 | Slack not receiving messages | Check `SLACK_WEBHOOK_URL` is a valid `https://hooks.slack.com/...` URL |
-| Emails not in Mailhog | Go to http://localhost:8025 — Mailhog captures all SMTP traffic automatically |
+| Emails not arriving | Check `SMTP_USER`/`SMTP_PASSWORD` in `.env`. Verify Gmail App Password (not account password). Check spam folder. |
 | Port 3000 in use | Change in `docker-compose.yml`: `"3001:80"` |
 | Containers stopped | `docker compose up` (no `--build` needed) |

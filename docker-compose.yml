@@ -17,15 +17,6 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # ── Mailhog (local SMTP catcher — web UI at localhost:8025) ───────────
-  mailhog:
-    image: mailhog/mailhog:latest
-    container_name: sre_mailhog
-    ports:
-      - "8025:8025"   # Web UI — open in browser to see captured emails
-      # Port 1025 (SMTP) is internal only — backend connects via mailhog:1025
-    restart: unless-stopped
-
   # ── Backend (FastAPI + PydanticAI + Gemini) ────────────────────────────
   backend:
     build:
@@ -46,11 +37,13 @@ services:
       JIRA_USER_EMAIL: ${JIRA_USER_EMAIL}
       JIRA_API_TOKEN: ${JIRA_API_TOKEN}
       JIRA_PROJECT_KEY: ${JIRA_PROJECT_KEY:-SRE}
-      # Email / SMTP (Mailhog container)
-      SMTP_HOST: mailhog
-      SMTP_PORT: 1025
-      SMTP_FROM: ${SMTP_FROM:-sre-agent@agentx.local}
-      SRE_TEAM_EMAIL: ${SRE_TEAM_EMAIL:-sre-team@agentx.local}
+      # Email / Gmail SMTP_SSL
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+      SRE_TEAM_EMAIL: ${SRE_TEAM_EMAIL}
       UPLOAD_DIR: /app/uploads
       ESHOP_CONTEXT_PATH: /app/context-provider/ecommerce-repo/src
     volumes:
@@ -61,8 +54,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      mailhog:
-        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

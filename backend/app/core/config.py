@@ -31,11 +31,13 @@ class Settings(BaseSettings):
     JIRA_API_TOKEN: str = ""
     JIRA_PROJECT_KEY: str = "SRE"
 
-    # Email / SMTP (Mailhog in Docker, real SMTP in production)
-    SMTP_HOST: str = "mailhog"
-    SMTP_PORT: int = 1025
-    SMTP_FROM: str = "sre-agent@agentx.local"
-    SRE_TEAM_EMAIL: str = "sre-team@agentx.local"
+    # Email / SMTP (Gmail with App Password)
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 465
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""
+    SRE_TEAM_EMAIL: str = ""
 
     # Uploads
     UPLOAD_DIR: str = "/app/uploads"
