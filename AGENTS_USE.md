@@ -119,8 +119,8 @@ User (Browser)
 │            │  ├── Dedup query (recent 48h incidents)         │  │
 │            │  ├── Build prompt: desc + code + dedup ctx     │  │
 │            │  ├── [IF attachment] → attach binary to prompt  │  │
-│            │  ├── PydanticAI Agent.run() → Gemini API        │  │
-│            │  └── Returns TriageResult (severity, runbook…) │  │
+│            │  ├── genai.GenerativeModel.generate_content()   │  │
+│            │  └── PydanticAI validates TriageResult schema   │  │
 │            └─────┬──────────────────────────────────────────┘  │
 │                  │                                              │
 │            ┌─────▼──────────────────────────────────────────┐  │
@@ -269,7 +269,7 @@ User (Browser)
   2. Guardrail scanner validates text fields (passes)
   3. Code Context Provider identifies **Identity.API** based on "identity", "login", "socket" keywords; loads `HostingExtensions.cs` and `Config.cs` from eShop source
   4. Dedup query finds existing incident SRE-1003 (Identity.API, P1, in_progress, created 10 min ago)
-  5. Gemini receives: incident text + **MP4 video** (binary attachment via PydanticAI BinaryPart) + eShop code context + existing SRE-1003 as dedup context
+  5. Gemini receives: incident text + **MP4 video** (base64 `inline_data` via Gemini multimodal API) + eShop code context + existing SRE-1003 as dedup context
   6. Gemini analyzes video frames: identifies `ERR_CONNECTION_REFUSED` to `localhost:5105`, visible terminal showing container exited, Docker OOMKill pattern
   7. Agent produces analysis: *"Se detecta fallo de Socket en la UI. El servicio de identidad en localhost:5105 rechazó la conexión. Correlacionando con la configuración del contenedor de Identity en el repo..."*
   8. Gemini determines `is_duplicate=true`, `duplicate_of=SRE-1003`, `similarity_score=0.97`
@@ -441,7 +441,7 @@ See full analysis in **[SCALING.md](SCALING.md)**.
 
 **What we would do differently:**
 - **Implement embeddings for smarter dedup.** Current dedup relies on the AI model's judgment when reading recent incident summaries. With `pgvector` and text embeddings, we could do semantic similarity search efficiently at any scale.
-- **Add a real-time WebSocket channel.** Currently the Dashboard polls every 10 seconds. A WebSocket push would make the triage result appear instantly without polling.
+- **Add embeddings-based dedup.** Current dedup passes recent incident summaries as text context to the AI. With `pgvector` and sentence embeddings, similarity search would scale to thousands of incidents without growing the Gemini prompt.
 - **Pre-index all eShop files at startup.** Currently code context is loaded on first use. A startup indexer would eliminate cold-start latency entirely.
 - **Add structured output validation for the runbook.** The runbook is currently freeform markdown. With more time, we'd parse it into discrete steps with severity labels.
 

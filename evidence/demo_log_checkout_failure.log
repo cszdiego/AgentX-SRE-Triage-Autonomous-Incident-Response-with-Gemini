@@ -1,0 +1,19 @@
+2026-04-09 13:58:01.234 [ERROR] Basket.API - RedisConnectionException: No connection is available to service this operation: HGET basket_user_8821
+   at StackExchange.Redis.ConnectionMultiplexer.ExecuteSyncImpl(Message message, ResultProcessor processor, ServerEndPoint server)
+   at eShop.Basket.API.Repositories.RedisBasketRepository.GetBasketAsync(String customerId)
+   at eShop.Basket.API.Grpc.BasketService.GetBasket(GetBasketRequest request, ServerCallContext context)
+
+2026-04-09 13:58:01.891 [ERROR] Basket.API - RedisConnectionException: No connection is available to service this operation: HGET basket_user_9104
+2026-04-09 13:58:02.112 [ERROR] Basket.API - RedisConnectionException: No connection is available to service this operation: HGET basket_user_7733
+2026-04-09 13:58:02.445 [ERROR] WebApp - Failed to load basket for user 8821: gRPC status 14 (Unavailable)
+2026-04-09 13:58:02.891 [WARN]  Basket.API - Redis reconnect attempt 1/5 failed. Waiting 5000ms...
+2026-04-09 13:58:05.003 [ERROR] Basket.API - Redis reconnect attempt 2/5 failed
+2026-04-09 13:58:08.112 [ERROR] Ordering.API - OrderStartedIntegrationEvent handler failed: basket checkout returned null
+2026-04-09 13:58:08.334 [CRIT]  Basket.API - All Redis reconnect attempts exhausted. Service degraded.
+2026-04-09 13:58:09.001 [ERROR] WebApp - Checkout button disabled for all users. Basket unavailable.
+
+--- IMPACT METRICS ---
+Affected users: ~3,200 active sessions
+Failed checkouts in last 10 min: 487
+Estimated revenue loss: $24,350 (avg $50/order)
+Redis last restart: 2026-04-09 13:45:00 UTC (maintenance window)

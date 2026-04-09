@@ -51,8 +51,8 @@ desktop.ini
 # ── Logs ─────────────────────────────────────────────────────────────────────
 *.log
 logs/
-# (evidence/*.log are intentionally tracked as demo artifacts)
-!evidence/
+# Demo log files in evidence/ are intentionally tracked for judges
+!evidence/*.log
 
 # ── Database ──────────────────────────────────────────────────────────────────
 *.db

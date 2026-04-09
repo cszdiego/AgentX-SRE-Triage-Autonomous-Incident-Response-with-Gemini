@@ -184,8 +184,7 @@ agentx-sre-triage/
 ├── scripts/                             # DB seed + resolve helpers
 ├── docker-compose.yml
 ├── AGENTS_USE.md                        # Hackathon agent documentation
-├── QUICKGUIDE.md                        # 5-minute setup guide
-└── CHEATSHEET.md                        # Demo step-by-step
+└── QUICKGUIDE.md                        # 5-minute setup guide
 ```
 
 ---

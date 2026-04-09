@@ -1,0 +1,12 @@
+2026-04-09 14:10:22.001 [ERROR] PaymentProcessor - RabbitMQ connection lost. Reconnecting...
+2026-04-09 14:10:22.334 [WARN]  EventBusRabbitMQ - Channel closed unexpectedly. BrokerUnreachableException
+2026-04-09 14:10:23.112 [ERROR] PaymentProcessor - Failed to consume OrderStatusChangedToStockConfirmedIntegrationEvent: connection error
+2026-04-09 14:10:23.445 [ERROR] Ordering.API - Payment integration event not acknowledged. Order stuck in status: StockConfirmed
+2026-04-09 14:10:25.001 [WARN]  PaymentProcessor - Dead letter queue growing: 127 unprocessed payment events
+2026-04-09 14:10:30.334 [ERROR] Ordering.API - Order 98821: timeout waiting for PaymentSucceeded event (30s)
+2026-04-09 14:10:30.445 [ERROR] Ordering.API - Order 98822: timeout waiting for PaymentSucceeded event (30s)
+
+--- IMPACT ---
+Orders stuck in payment processing: 127
+RabbitMQ uptime: 0h 3m (recently restarted)
+Affected services: PaymentProcessor, Ordering.API, EventBusRabbitMQ

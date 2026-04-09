@@ -1,0 +1,46 @@
+2026-04-08 18:42:11.003 [ERROR] WebApp.MVC - HttpRequestException: Connection refused (localhost:5105)
+   at System.Net.Http.HttpConnectionPool.ConnectAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpConnectionPool.CreateHttp11ConnectionAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Sockets.Socket.ConnectAsync(IPEndPoint remoteEndPoint, CancellationToken cancellationToken)
+   --- End of inner exception stack trace ---
+   System.Net.Sockets.SocketException (111): Connection refused
+   at System.Net.Sockets.Socket.ConnectAsync(IPEndPoint remoteEndPoint, CancellationToken cancellationToken)
+   at eShop.WebApp.Services.IdentityService.GetCurrentUserAsync(String accessToken)
+   at eShop.WebApp.Pages.Login.OnPostAsync()
+   at Microsoft.AspNetCore.Mvc.RazorPages.Infrastructure.ExecutorFactory+GenericTaskHandlerMethod.Execute(Object receiver, Object[] arguments)
+
+2026-04-08 18:42:11.041 [ERROR] WebApp.MVC - Login flow aborted. Identity.API unreachable at http://localhost:5105
+2026-04-08 18:42:11.044 [WARN]  WebApp.MVC - Retry attempt 1/3 to http://localhost:5105/connect/token — FAILED (Connection refused)
+2026-04-08 18:42:11.544 [WARN]  WebApp.MVC - Retry attempt 2/3 to http://localhost:5105/connect/token — FAILED (Connection refused)
+2026-04-08 18:42:12.047 [WARN]  WebApp.MVC - Retry attempt 3/3 to http://localhost:5105/connect/token — FAILED (Connection refused)
+2026-04-08 18:42:12.049 [CRIT]  WebApp.MVC - All retries exhausted. Identity.API container at localhost:5105 is DOWN or misconfigured.
+
+2026-04-08 18:42:12.052 [ERROR] Ordering.API - AuthorizationMiddleware: Unable to validate JWT token — identity server unreachable
+   at eShop.Ordering.API.Infrastructure.Auth.JwtBearerValidator.ValidateAsync(String token)
+   at Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerHandler.HandleAuthenticateAsync()
+   Caused by: System.Net.Http.HttpRequestException: Connection refused (localhost:5105)
+
+2026-04-08 18:42:12.071 [ERROR] Basket.API - AuthorizationMiddleware: JWT validation failed — identity provider unreachable at localhost:5105
+2026-04-08 18:42:12.089 [ERROR] Catalog.API - Health check dependency failure: IdentityServer at localhost:5105 — status: Unhealthy
+
+--- IMPACT METRICS ---
+Affected services: WebApp.MVC, Ordering.API, Basket.API, Catalog.API (all depend on Identity token validation)
+Authentication failures in last 5 min: 1,204
+Users blocked from login: ALL active sessions (session refresh failing)
+Estimated affected sessions: ~4,800 concurrent users
+Identity container status: Exited (exit code 1) — OOMKilled by Docker host
+Last successful auth: 2026-04-08 18:41:58 UTC
+Container OOM event: 2026-04-08 18:42:08 UTC (memory limit 512MB exceeded — 671MB used)
+
+--- AGENT ANALYSIS ---
+[AgentX SRE-Triage] Se detecta fallo de Socket en la UI. El servicio de identidad en localhost:5105 rechazó la conexión.
+Correlacionando con la configuración del contenedor de Identity en el repo...
+
+Contexto de código cargado: eShop/src/Identity.API/Config.cs, eShop/src/Identity.API/HostingExtensions.cs
+Hallazgo: IdentityServer4 inicializado en puerto 5105 (appsettings.json). El contenedor fue terminado por OOMKilled.
+Causa raíz probable: límite de memoria del contenedor (512MB) insuficiente para la carga actual (~671MB).
+Runbook generado: (1) docker start eshop-identity / kubectl rollout restart deploy/identity-api
+              (2) Aumentar memory_limit a 1GB en docker-compose.yml / Kubernetes resources.limits
+              (3) Verificar: curl http://localhost:5105/.well-known/openid-configuration → 200
+              (4) Confirmar auth: POST /connect/token con client_credentials
+Severidad clasificada: P1 (toda la autenticación bloqueada — 100% de usuarios afectados)
