@@ -1,0 +1,63 @@
+{
+  "trace_id": "a3f7c291-8b4e-4d12-9e5f-0c1a2b3d4e5f",
+  "incident_id": "b8e2d1a4-3c6f-4a9b-8d2e-1f5a9c3b7e6d",
+  "incident_title": "Checkout failure — orders not processing after Redis restart",
+  "timestamp": "2026-04-08T14:23:01Z",
+  "model": "gemini-2.0-flash",
+  "stages": [
+    {
+      "stage": "ingest",
+      "status": "success",
+      "duration_ms": 12,
+      "timestamp": "2026-04-08T14:23:01.012Z",
+      "metadata": {
+        "guardrail_passed": true,
+        "has_attachment": true,
+        "attachment_type": "log",
+        "input_length_chars": 842
+      }
+    },
+    {
+      "stage": "triage",
+      "status": "success",
+      "duration_ms": 3847,
+      "timestamp": "2026-04-08T14:23:04.859Z",
+      "model": "gemini-2.0-flash",
+      "input_tokens": 2341,
+      "output_tokens": 587,
+      "code_context_service": "Basket.API",
+      "code_files_loaded": [
+        "Basket.API/Repositories/RedisBasketRepository.cs",
+        "Basket.API/Grpc/BasketService.cs"
+      ],
+      "result": {
+        "severity": "P1",
+        "affected_service": "Basket.API",
+        "triage_summary": "Redis connection failure is causing Basket.API to throw 503 errors on all cart operations. This directly blocks the checkout flow as the basket cannot be retrieved for order creation. The issue started immediately after a Redis restart at 14:19 UTC.",
+        "root_cause": "Redis connection pool not recovering after restart. RedisBasketRepository.cs uses StackExchange.Redis with retry=false configuration. After Redis restart, existing connections are invalid and the retry policy does not automatically reconnect.",
+        "is_duplicate": false,
+        "keywords": ["redis", "basket", "checkout", "connection-pool", "503"]
+      }
+    },
+    {
+      "stage": "ticket",
+      "status": "success",
+      "duration_ms": 45,
+      "timestamp": "2026-04-08T14:23:04.904Z",
+      "ticket_key": "SRE-1001",
+      "ticket_id": "c2f9a4e1-7b3d-4c8f-9a1e-2d5b8f4c3a9e"
+    },
+    {
+      "stage": "notify",
+      "status": "success",
+      "duration_ms": 23,
+      "timestamp": "2026-04-08T14:23:04.927Z",
+      "notifications_sent": 2,
+      "channels": ["slack", "email"],
+      "slack_recipient": "#sre-alerts",
+      "email_recipient": "sre-team@company.com"
+    }
+  ],
+  "total_duration_ms": 3927,
+  "langfuse_trace_url": "https://us.cloud.langfuse.com/trace/a3f7c291-8b4e-4d12-9e5f-0c1a2b3d4e5f"
+}

@@ -1,0 +1,29 @@
+{
+  "description": "Example of the deduplication system detecting a duplicate incident",
+  "timestamp": "2026-04-08T15:10:22Z",
+  "scenario": "Second report of the same Redis/Basket checkout failure",
+  "original_incident": {
+    "id": "b8e2d1a4-3c6f-4a9b-8d2e-1f5a9c3b7e6d",
+    "title": "Checkout failure — orders not processing after Redis restart",
+    "created_at": "2026-04-08T14:23:01Z",
+    "severity": "P1",
+    "ticket_key": "SRE-1001",
+    "status": "in_progress"
+  },
+  "duplicate_report": {
+    "id": "f4a9c3e7-2b1d-4f8a-9c3e-7b2d5f1a8c4e",
+    "title": "Unable to checkout — cart keeps failing",
+    "description": "Since about 2:20 PM, when I try to checkout, the cart shows an error. It seems like the basket is broken.",
+    "reporter_email": "jane.smith@company.com"
+  },
+  "triage_result": {
+    "is_duplicate": true,
+    "duplicate_of": "b8e2d1a4-3c6f-4a9b-8d2e-1f5a9c3b7e6d",
+    "similarity_score": 0.92,
+    "reasoning": "This incident describes identical symptoms (checkout failure, basket errors) in the same time window as SRE-1001. The root cause (Redis connection failure in Basket.API) matches exactly. Marking as duplicate to avoid noise.",
+    "severity": "P1",
+    "affected_service": "Basket.API"
+  },
+  "action": "Incident marked as DUPLICATE. No new ticket created. Original ticket SRE-1001 referenced.",
+  "benefit": "Deduplication prevented 1 redundant ticket creation and 2 redundant notifications."
+}

@@ -1,0 +1,115 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: #080c10;
+    color: #e2e8f0;
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track { background: #0d1117; }
+  ::-webkit-scrollbar-thumb { background: #1c2a3a; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #00d4ff33; }
+}
+
+@layer components {
+  .terminal-panel {
+    @apply bg-terminal-surface border border-terminal-border rounded-lg;
+  }
+
+  .severity-p1 { @apply text-severity-p1 border-severity-p1; }
+  .severity-p2 { @apply text-severity-p2 border-severity-p2; }
+  .severity-p3 { @apply text-severity-p3 border-severity-p3; }
+  .severity-p4 { @apply text-severity-p4 border-severity-p4; }
+
+  .glow-green { box-shadow: 0 0 20px rgba(0, 255, 136, 0.15); }
+  .glow-cyan  { box-shadow: 0 0 20px rgba(0, 212, 255, 0.15); }
+  .glow-red   { box-shadow: 0 0 20px rgba(255, 56, 96, 0.2); }
+
+  .scanline {
+    background: linear-gradient(
+      transparent 0%,
+      rgba(0, 212, 255, 0.03) 50%,
+      transparent 100%
+    );
+    background-size: 100% 4px;
+    pointer-events: none;
+  }
+}
+
+/* Grid background */
+.bg-ops-grid {
+  background-image:
+    linear-gradient(rgba(0,212,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,212,255,0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Typing cursor */
+.cursor::after {
+  content: '_';
+  animation: blink 1s step-end infinite;
+  color: #00ff88;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Status pulsing dots */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status-dot.active {
+  background: #00ff88;
+  box-shadow: 0 0 8px #00ff88;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.9); }
+}
+
+/* Animated border on focus */
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: #00d4ff !important;
+  box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.2);
+}
+
+/* Progress bar shimmer */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 212, 255, 0.1) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}

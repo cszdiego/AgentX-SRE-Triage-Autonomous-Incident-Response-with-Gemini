@@ -1,0 +1,14 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.12
+pydantic==2.10.3
+pydantic-settings==2.6.1
+pydantic-ai==0.0.19
+psycopg2-binary==2.9.10
+langfuse==2.57.5
+google-generativeai==0.8.3
+python-dotenv==1.0.1
+aiofiles==24.1.0
+pillow==11.0.0
+httpx==0.27.2
+slowapi==0.1.9

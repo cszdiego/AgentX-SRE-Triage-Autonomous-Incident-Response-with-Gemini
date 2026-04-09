@@ -1,0 +1,65 @@
+services:
+  # ── PostgreSQL ─────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: sre_postgres
+    environment:
+      POSTGRES_DB: sre_triage
+      POSTGRES_USER: sre_user
+      POSTGRES_PASSWORD: sre_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Port 5432 intentionally NOT exposed externally — internal only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sre_user -d sre_triage"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Backend (FastAPI + PydanticAI + Gemini) ────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sre_backend
+    environment:
+      DATABASE_URL: postgresql://sre_user:sre_pass@db:5432/sre_triage
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://us.cloud.langfuse.com}
+      UPLOAD_DIR: /app/uploads
+      ESHOP_CONTEXT_PATH: /app/context-provider/ecommerce-repo/src
+    volumes:
+      - uploads_data:/app/uploads
+      - ./context-provider:/app/context-provider:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
+
+  # ── Frontend (Vite + React + Tailwind) ────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sre_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  uploads_data:
