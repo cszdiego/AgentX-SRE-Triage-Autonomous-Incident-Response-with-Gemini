@@ -11,6 +11,7 @@ import uuid
 import base64
 import json
 import os
+import re
 from typing import Optional
 
 import google.generativeai as genai
@@ -182,12 +183,13 @@ Produce the JSON triage output now."""
         # Build Gemini content parts
         content_parts: list = [SYSTEM_PROMPT + "\n\n" + user_prompt]
 
-        # Attach multimodal content
+        # ── Attach multimodal content ────────────────────────────────────────
         if attachment_path and os.path.exists(attachment_path):
             try:
                 if attachment_type == "image":
                     mime = _get_image_mime(attachment_path)
-                    await emit(incident_id, f"Processing image attachment with Gemini Vision...", detail=os.path.basename(attachment_path), stage="triage", icon="image")
+                    file_size = os.path.getsize(attachment_path)
+                    await emit(incident_id, "Processing image attachment with Gemini Vision...", detail=os.path.basename(attachment_path), stage="triage", icon="image")
                     with open(attachment_path, "rb") as f:
                         img_data = f.read()
                     content_parts.append({
@@ -196,53 +198,113 @@ Produce the JSON triage output now."""
                             "data": base64.b64encode(img_data).decode(),
                         }
                     })
-                    content_parts.append("\n[Above: screenshot attached by reporter. Analyze visible error messages.]")
+                    content_parts.append("\n[Above: screenshot attached by reporter. Analyze all visible error messages, stack traces, and UI state.]")
                     tc.metadata["has_attachment"] = True
                     tc.metadata["attachment_type"] = "image"
-                    logger.info("Attached image: %s (%s)", attachment_path, mime)
+                    logger.info("Attached image: %s (%s, %d bytes)", attachment_path, mime, file_size)
+
                 elif attachment_type == "video":
-                    await emit(incident_id, f"Extracting error context from video recording...", detail=os.path.basename(attachment_path), stage="triage", icon="video")
-                    # Read first 2MB as binary, send as base64 inline data for Gemini
-                    with open(attachment_path, "rb") as f:
-                        vid_data = f.read(2 * 1024 * 1024)
-                    content_parts.append({
-                        "inline_data": {
-                            "mime_type": "video/mp4",
-                            "data": base64.b64encode(vid_data).decode(),
-                        }
-                    })
-                    content_parts.append("\n[Above: video recording of the incident. Analyze visible errors, UI state, and timestamps.]")
-                    tc.metadata["has_attachment"] = True
-                    tc.metadata["attachment_type"] = "video"
-                    logger.info("Attached video: %s", attachment_path)
+                    await emit(incident_id, "Extracting error context from video recording...", detail=os.path.basename(attachment_path), stage="triage", icon="video")
+                    file_size = os.path.getsize(attachment_path)
+
+                    # Detect actual MIME type from file header (magic bytes)
+                    video_mime = _detect_video_mime(attachment_path)
+
+                    # Gemini inline_data limit: ~20MB base64. Read up to 15MB raw.
+                    MAX_VIDEO_BYTES = 15 * 1024 * 1024
+                    video_attached = False
+
+                    if file_size <= MAX_VIDEO_BYTES:
+                        try:
+                            with open(attachment_path, "rb") as f:
+                                vid_data = f.read()
+                            content_parts.append({
+                                "inline_data": {
+                                    "mime_type": video_mime,
+                                    "data": base64.b64encode(vid_data).decode(),
+                                }
+                            })
+                            content_parts.append("\n[Above: video recording of the incident. Analyze visible errors, network requests, UI state, console output, and timestamps.]")
+                            tc.metadata["has_attachment"] = True
+                            tc.metadata["attachment_type"] = "video"
+                            video_attached = True
+                            logger.info("Attached video: %s (%s, %d bytes)", attachment_path, video_mime, file_size)
+                        except Exception as vid_err:
+                            logger.warning("Video inline_data failed (%s), falling back to frame extraction: %s", video_mime, vid_err)
+
+                    # Fallback: extract frames as JPEG images (more stable than raw video)
+                    if not video_attached:
+                        await emit(incident_id, "Video too large — extracting key frames for analysis...", stage="triage", icon="image")
+                        frames = _extract_video_frames(attachment_path, max_frames=3)
+                        if frames:
+                            for i, frame_data in enumerate(frames):
+                                content_parts.append({
+                                    "inline_data": {
+                                        "mime_type": "image/jpeg",
+                                        "data": base64.b64encode(frame_data).decode(),
+                                    }
+                                })
+                            content_parts.append(f"\n[Above: {len(frames)} key frames extracted from video recording. Analyze visible errors, UI state, and error messages in each frame.]")
+                            tc.metadata["has_attachment"] = True
+                            tc.metadata["attachment_type"] = "video_frames"
+                            logger.info("Attached %d frames from video: %s", len(frames), attachment_path)
+                        else:
+                            # No frames extracted — describe video metadata in text
+                            content_parts[0] += f"\n\n## Video Attachment (could not decode):\nFile: {os.path.basename(attachment_path)}, Size: {file_size // 1024}KB. Reporter recorded a video of the issue — analyze based on title and description."
+                            logger.warning("Could not extract frames from video: %s", attachment_path)
+
                 else:
-                    # Log file — read as text and append to prompt
-                    await emit(incident_id, f"Parsing log file — matching patterns against eShop services...", detail=os.path.basename(attachment_path), stage="triage", icon="file-text")
+                    # Log / text file — extract .NET exception patterns + append full text
+                    await emit(incident_id, "Parsing log file — scanning for .NET exception patterns...", detail=os.path.basename(attachment_path), stage="triage", icon="file-text")
                     with open(attachment_path, "r", encoding="utf-8", errors="ignore") as f:
-                        log_content = f.read()[:4000]
-                    content_parts[0] += f"\n\n## Attached Log File:\n```\n{log_content}\n```"
+                        log_content = f.read()
+
+                    # Extract .NET exception signatures for targeted RAG hints
+                    exception_hints = _extract_dotnet_exceptions(log_content)
+                    hint_section = ""
+                    if exception_hints:
+                        hint_section = "\n\n## Exception Patterns Detected in Log:\n"
+                        for exc_type, service_hint, sample in exception_hints:
+                            hint_section += f"- **{exc_type}** (likely service: {service_hint}): `{sample[:120]}`\n"
+                        await emit(incident_id, f"Detected {len(exception_hints)} exception pattern(s) in log", detail=", ".join(e[0] for e in exception_hints[:3]), stage="triage", icon="alert-triangle")
+
+                    # Cap log at 5000 chars, prioritize lines with exceptions
+                    log_trimmed = _prioritize_log_lines(log_content, max_chars=5000)
+                    content_parts[0] += f"{hint_section}\n\n## Attached Log File:\n```\n{log_trimmed}\n```"
                     tc.metadata["has_attachment"] = True
                     tc.metadata["attachment_type"] = attachment_type
-                    logger.info("Attached log file: %s", attachment_path)
+                    logger.info("Attached log file: %s (%d chars, %d exceptions found)", attachment_path, len(log_content), len(exception_hints))
+
             except Exception as e:
                 logger.warning("Could not attach file %s: %s", attachment_path, e)
 
         await emit(incident_id, f"Sending multimodal prompt to {settings.GEMINI_MODEL}...", detail=f"Prompt: {len(content_parts[0])} chars + {len(content_parts)-1} media part(s)", stage="triage", icon="cpu")
 
-        # Call Gemini (with fallback model on quota exhaustion)
+        # ── Call Gemini with layered fallback ────────────────────────────────
+        triage = None
+        model_used = settings.GEMINI_MODEL
         try:
             model = _configure_gemini()
             try:
                 response = model.generate_content(content_parts)
                 model_used = settings.GEMINI_MODEL
-            except Exception as quota_err:
-                if "RESOURCE_EXHAUSTED" in str(quota_err) or "429" in str(quota_err):
+            except Exception as first_err:
+                err_str = str(first_err)
+                if "RESOURCE_EXHAUSTED" in err_str or "429" in err_str:
                     logger.warning("Primary model quota exceeded, trying fallback: %s", settings.GEMINI_FALLBACK_MODEL)
                     fallback = _configure_gemini(settings.GEMINI_FALLBACK_MODEL)
                     response = fallback.generate_content(content_parts)
                     model_used = settings.GEMINI_FALLBACK_MODEL
+                elif "INVALID_ARGUMENT" in err_str and len(content_parts) > 1:
+                    # Media part rejected — retry with text-only prompt
+                    logger.warning("Gemini INVALID_ARGUMENT on media, retrying text-only: %s", err_str[:200])
+                    await emit(incident_id, "Media rejected by API — retrying with text-only analysis...", stage="triage", icon="alert-triangle")
+                    text_only = [content_parts[0]]
+                    response = model.generate_content(text_only)
+                    model_used = settings.GEMINI_MODEL
                 else:
                     raise
+
             raw_json = response.text.strip()
 
             # Clean up if model wraps in markdown despite mime type setting
@@ -302,19 +364,27 @@ Produce the JSON triage output now."""
 
         except (json.JSONDecodeError, ValidationError, Exception) as e:
             logger.error("Triage AI error: %s", e, exc_info=True)
+            # Build a meaningful fallback from title + description so tickets are never "Unknown"
+            inferred_service = _infer_service_from_text(f"{title} {description}")
+            inferred_severity = _infer_severity_from_text(f"{title} {description}")
             triage = TriageResult(
-                severity="P2",
-                affected_service="Unknown — review required",
+                severity=inferred_severity,
+                affected_service=inferred_service,
                 triage_summary=(
-                    "Automated triage encountered an error and requires manual review. "
-                    f"Error type: {type(e).__name__}. The incident has been escalated."
+                    f"Auto-triage encountered an error ({type(e).__name__}) and fell back to rule-based analysis. "
+                    f"Incident: '{title}'. "
+                    f"Description summary: {description[:300]}{'...' if len(description) > 300 else ''}"
                 ),
-                root_cause="Unable to determine automatically. Please review the incident description manually.",
+                root_cause=(
+                    f"AI analysis unavailable. Based on the report: {description[:400]}{'...' if len(description) > 400 else ''}. "
+                    "Manual review required to confirm root cause."
+                ),
                 runbook=(
-                    "1. Review incident description manually.\n"
-                    "2. Check eShop service health dashboards.\n"
-                    "3. Escalate to on-call engineer.\n"
-                    "4. Re-run triage if more details are available."
+                    f"1. Review the incident description: '{title}'\n"
+                    f"2. Check {inferred_service} service health dashboard.\n"
+                    "3. Review recent deployments and configuration changes.\n"
+                    "4. Escalate to the on-call engineer if service is degraded.\n"
+                    "5. Re-submit with additional logs/screenshots for full AI triage."
                 ),
                 is_duplicate=False,
                 keywords=[],
@@ -458,3 +528,166 @@ def _get_image_mime(path: str) -> str:
         ".gif": "image/gif",
         ".webp": "image/webp",
     }.get(ext, "image/jpeg")
+
+
+def _detect_video_mime(path: str) -> str:
+    """Detect video MIME from magic bytes + extension. Falls back to video/mp4."""
+    try:
+        with open(path, "rb") as f:
+            header = f.read(12)
+        # QuickTime / MOV: ftyp box at offset 4
+        if header[4:8] in (b"ftyp", b"moov", b"free", b"mdat"):
+            ext = os.path.splitext(path)[1].lower()
+            if ext in (".mov", ".qt"):
+                return "video/quicktime"
+            return "video/mp4"
+        # WebM: EBML header
+        if header[:4] == b"\x1a\x45\xdf\xa3":
+            return "video/webm"
+        # AVI: RIFF....AVI
+        if header[:4] == b"RIFF" and header[8:12] == b"AVI ":
+            return "video/x-msvideo"
+    except Exception:
+        pass
+    # Fall back to extension
+    ext = os.path.splitext(path)[1].lower()
+    return {"mp4": "video/mp4", ".mp4": "video/mp4",
+            ".mov": "video/quicktime", ".webm": "video/webm",
+            ".avi": "video/x-msvideo"}.get(ext, "video/mp4")
+
+
+def _extract_video_frames(path: str, max_frames: int = 3) -> list[bytes]:
+    """
+    Extract up to max_frames JPEG frames from a video using OpenCV if available,
+    or by reading raw bytes at evenly spaced offsets as a last resort.
+    Returns list of JPEG bytes.
+    """
+    frames = []
+    try:
+        import cv2  # type: ignore
+        cap = cv2.VideoCapture(path)
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total <= 0:
+            total = 30
+        positions = [int(total * i / (max_frames + 1)) for i in range(1, max_frames + 1)]
+        for pos in positions:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, pos)
+            ret, frame = cap.read()
+            if ret:
+                ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                if ok:
+                    frames.append(buf.tobytes())
+        cap.release()
+        logger.info("Extracted %d frames via OpenCV from %s", len(frames), path)
+    except ImportError:
+        # OpenCV not installed — skip frame extraction
+        logger.info("OpenCV not available, skipping frame extraction for %s", path)
+    except Exception as e:
+        logger.warning("Frame extraction failed for %s: %s", path, e)
+    return frames
+
+
+# .NET exception type → most likely eShop service
+_DOTNET_EXCEPTION_SERVICE_MAP = {
+    "RedisConnectionException":        "Basket.API",
+    "SocketException":                 "Basket.API / Identity.API",
+    "HttpRequestException":            "WebApp / Ordering.API",
+    "SqlException":                    "Catalog.API / Ordering.API",
+    "DbUpdateException":               "Catalog.API / Ordering.API",
+    "InvalidOperationException":       "Ordering.API",
+    "RabbitMQBrokerUnreachableException": "EventBus / Ordering.API",
+    "AuthenticationException":         "Identity.API",
+    "UnauthorizedAccessException":     "Identity.API",
+    "OutOfMemoryException":            "Any service — check pod resources",
+    "TimeoutException":                "Basket.API / Ordering.API",
+    "PaymentException":                "PaymentProcessor",
+    "WebhookDeliveryException":        "Webhooks.API",
+    "NullReferenceException":          "Review recent deployments",
+}
+
+# Pattern to find .NET exception lines in logs
+_EXC_PATTERN = re.compile(
+    r"((?:\w+\.)*\w+Exception)[:\s]+(.*?)(?:\r?\n|$)",
+    re.IGNORECASE,
+)
+_STACK_PATTERN = re.compile(r"^\s+at\s+", re.MULTILINE)
+
+
+def _extract_dotnet_exceptions(log_text: str) -> list[tuple[str, str, str]]:
+    """
+    Scan log text for .NET exception types.
+    Returns list of (exception_type, service_hint, sample_line).
+    """
+    found: dict[str, tuple[str, str]] = {}
+    for match in _EXC_PATTERN.finditer(log_text):
+        exc_type = match.group(1).split(".")[-1]  # strip namespace
+        sample   = match.group(0).strip()[:160]
+        service  = _DOTNET_EXCEPTION_SERVICE_MAP.get(exc_type, "Unknown — check eShop services")
+        if exc_type not in found:
+            found[exc_type] = (service, sample)
+    return [(k, v[0], v[1]) for k, v in found.items()]
+
+
+def _prioritize_log_lines(log_text: str, max_chars: int = 5000) -> str:
+    """
+    Return the most relevant log lines first:
+    1. Exception lines + immediate context (3 lines after)
+    2. ERROR / CRITICAL lines
+    3. Fill remaining budget with head of log
+    """
+    lines = log_text.splitlines()
+    priority: list[str] = []
+    normal: list[str] = []
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if "Exception" in line or "ERROR" in line.upper() or "CRITICAL" in line.upper() or "FATAL" in line.upper():
+            priority.append(line)
+            # Include 3 lines of stack trace context
+            for j in range(1, 4):
+                if i + j < len(lines):
+                    priority.append(lines[i + j])
+            i += 4
+        else:
+            normal.append(line)
+            i += 1
+
+    combined = "\n".join(priority)
+    if len(combined) < max_chars:
+        remaining = max_chars - len(combined)
+        combined += "\n" + "\n".join(normal)[:remaining]
+    return combined[:max_chars]
+
+
+# Service keyword map for rule-based fallback
+_SERVICE_KEYWORDS = {
+    "Basket.API":        ["basket", "cart", "redis", "checkout"],
+    "Catalog.API":       ["catalog", "product", "image", "price", "inventory"],
+    "Ordering.API":      ["order", "ordering", "saga", "rabbitmq", "payment", "eventbus"],
+    "Identity.API":      ["identity", "auth", "login", "jwt", "token", "oauth", "oidc"],
+    "PaymentProcessor":  ["payment", "transaction", "charge", "stripe"],
+    "Webhooks.API":      ["webhook", "outbound", "callback"],
+    "WebApp":            ["frontend", "blazor", "ui", "browser", "webapp"],
+    "EventBus":          ["rabbitmq", "event bus", "message", "consumer", "publisher"],
+}
+
+_SEVERITY_P1_KEYWORDS = ["down", "outage", "critical", "crash", "data loss", "breach", "revenue", "checkout broken", "503", "500"]
+_SEVERITY_P2_KEYWORDS = ["failure", "failing", "degraded", "slow", "timeout", "error", "exception", "403", "401"]
+
+
+def _infer_service_from_text(text: str) -> str:
+    text_lower = text.lower()
+    for service, keywords in _SERVICE_KEYWORDS.items():
+        if any(kw in text_lower for kw in keywords):
+            return service
+    return "eShop — service TBD"
+
+
+def _infer_severity_from_text(text: str) -> str:
+    text_lower = text.lower()
+    if any(kw in text_lower for kw in _SEVERITY_P1_KEYWORDS):
+        return "P1"
+    if any(kw in text_lower for kw in _SEVERITY_P2_KEYWORDS):
+        return "P2"
+    return "P3"
