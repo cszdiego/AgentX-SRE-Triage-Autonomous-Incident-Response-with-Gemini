@@ -30,6 +30,8 @@ export interface Incident {
   ticket_status?: string
   ticket_id?: string
   assigned_to?: string
+  jira_key?: string
+  jira_url?: string
   resolved_at?: string
   created_at: string
   updated_at: string

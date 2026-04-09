@@ -1,4 +1,4 @@
-# Quick Guide — AgentX SRE-Triage
+# Quick Guide — AgentX SRE-Triage v1.1
 
 Get the full system running in under 5 minutes.
 
@@ -9,6 +9,8 @@ Get the full system running in under 5 minutes.
 - **Docker Desktop** — [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop) (must be running)
 - **Gemini API key** — free tier at [ai.google.dev](https://ai.google.dev/) (gemini-2.5-flash works on free tier)
 - **Langfuse account** — free at [us.cloud.langfuse.com](https://us.cloud.langfuse.com) (create a project, copy keys)
+- **Slack Incoming Webhook** — create at [api.slack.com/apps](https://api.slack.com/apps) → Your App → Incoming Webhooks
+- **Jira API token** — create at [id.atlassian.com/manage-profile/security](https://id.atlassian.com/manage-profile/security) → API tokens
 
 ---
 
@@ -30,14 +32,28 @@ cp .env.example .env
 Open `.env` and fill in your keys:
 
 ```env
+# Required
 GEMINI_API_KEY=AIzaSy...          # From ai.google.dev
 GEMINI_MODEL=gemini-2.5-flash
 LANGFUSE_SECRET_KEY=sk-lf-...     # From Langfuse project settings
 LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_BASE_URL=https://us.cloud.langfuse.com
+
+# Real Slack integration
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+
+# Real Jira integration
+JIRA_SITE_URL=your-site.atlassian.net
+JIRA_USER_EMAIL=your-email@example.com
+JIRA_API_TOKEN=ATATT3x...
+JIRA_PROJECT_KEY=SRE              # Your Jira project key prefix
+
+# Email (auto-configured — Mailhog runs in Docker)
+SMTP_HOST=mailhog
+SMTP_PORT=1025
 ```
 
-> **Note:** The system works even if Langfuse keys are invalid — it falls back to local PostgreSQL tracing automatically.
+> **Note:** Langfuse, Slack, and Jira all fall back gracefully if not configured. The pipeline never fails due to a missing integration.
 
 ---
 
@@ -62,6 +78,8 @@ sre_backend  | INFO:     Application startup complete.
 |-----|-----------------|
 | http://localhost:3000 | **Dashboard** — all incidents, stats, severity filter |
 | http://localhost:3000/report | **Report Incident** — submit text, log, image, or video |
+| http://localhost:8025 | **Mailhog** — captured emails (team alerts + reporter notifications) |
+| http://localhost:8000/api/v1/health/metrics | **Live metrics** — incidents, tokens, guardrail blocks, Jira count |
 | http://localhost:8000/docs | **API Docs** — Swagger UI for all endpoints |
 | http://localhost:8000/health | **Health check** — DB + model status |
 
@@ -82,8 +100,10 @@ You'll be redirected to the incident detail page immediately. The **Agent Reason
 - Severity **P1 CRITICAL**
 - Root cause referencing `RedisBasketRepository.cs`
 - Runbook with numbered remediation steps
-- Ticket `SRE-XXXX` created
-- Slack + email notifications logged
+- Internal ticket `SRE-XXXX` created
+- **Jira issue created** (e.g., `SRE-42`) with a direct link in the UI
+- **Slack alert** in `#sre-alerts` with severity, service, and Jira link
+- **Email** visible in Mailhog at http://localhost:8025
 
 ---
 
@@ -126,13 +146,35 @@ All files in `evidence/` are ready to attach during a demo:
 ## Resolving a Ticket
 
 From the incident detail page, click **RESOLVE TICKET** (appears after triage completes).  
-The system marks the ticket resolved and sends an email notification to the original reporter.
+The system marks the ticket resolved and sends a resolution email to the original reporter (visible in Mailhog).
 
-Or via API (replace SRE-XXXX with actual key):
+Or via API (replace `<ticket_id>` with the UUID from the incident detail):
 ```bash
-curl -X PATCH http://localhost:8000/api/v1/tickets/SRE-XXXX/resolve \
+curl -X PATCH http://localhost:8000/api/v1/tickets/<ticket_id>/resolve \
   -H "Content-Type: application/json" \
   -d '{"resolution_note": "Redis connection pool restored. Pod restarted."}'
+```
+
+---
+
+## Live Metrics (for demo video close)
+
+```bash
+curl http://localhost:8000/api/v1/health/metrics | jq
+```
+
+Returns:
+```json
+{
+  "incidents_total": 5,
+  "incidents_last_24h": 3,
+  "avg_triage_ms": 4200,
+  "guardrail_blocks_total": 2,
+  "jira_tickets_created": 3,
+  "slack_delivered": 3,
+  "email_delivered": 6,
+  "tokens_input_total": 14500
+}
 ```
 
 ---
@@ -144,5 +186,8 @@ curl -X PATCH http://localhost:8000/api/v1/tickets/SRE-XXXX/resolve \
 | 413 Request Entity Too Large | Already handled — nginx limit set to 100MB |
 | Triage hangs >30s | Check Gemini API key quota at [aistudio.google.com](https://aistudio.google.com) |
 | Dashboard shows no incidents | Check backend logs: `docker compose logs backend` |
+| Jira issue not created | Check `JIRA_API_TOKEN` and `JIRA_PROJECT_KEY` in `.env` — see backend logs for error details |
+| Slack not receiving messages | Check `SLACK_WEBHOOK_URL` is a valid `https://hooks.slack.com/...` URL |
+| Emails not in Mailhog | Go to http://localhost:8025 — Mailhog captures all SMTP traffic automatically |
 | Port 3000 in use | Change in `docker-compose.yml`: `"3001:80"` |
 | Containers stopped | `docker compose up` (no `--build` needed) |

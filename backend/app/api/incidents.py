@@ -10,6 +10,8 @@ from datetime import datetime
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request, BackgroundTasks
 from fastapi.responses import JSONResponse, StreamingResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.core.config import get_settings
 from app.core.database import fetchall, fetchone, execute_returning
@@ -18,6 +20,7 @@ from app.models.incident import IncidentResponse
 logger = logging.getLogger(__name__)
 settings = get_settings()
 router = APIRouter(prefix="/incidents", tags=["incidents"])
+limiter = Limiter(key_func=get_remote_address)
 
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp",
                  "text/plain", "application/octet-stream", "video/mp4", "video/quicktime"}
@@ -25,6 +28,7 @@ MAX_FILE_BYTES = settings.MAX_FILE_SIZE_MB * 1024 * 1024
 
 
 @router.post("", status_code=202)
+@limiter.limit("10/minute")
 async def create_incident(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -212,7 +216,7 @@ def get_incident(incident_id: str):
         """
         SELECT i.*,
                t.ticket_key, t.status as ticket_status, t.id as ticket_id,
-               t.assigned_to, t.resolved_at
+               t.assigned_to, t.resolved_at, t.jira_key, t.jira_url
         FROM incidents i
         LEFT JOIN tickets t ON t.incident_id = i.id
         WHERE i.id = %s

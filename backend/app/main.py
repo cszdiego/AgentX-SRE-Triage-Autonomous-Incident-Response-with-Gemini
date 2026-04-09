@@ -6,6 +6,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from app.core.config import get_settings
 from app.core.database import init_pool, init_schema
@@ -21,6 +24,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# ── Rate limiter (10 incident submissions per minute per IP) ───────────────
+limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
 
 @asynccontextmanager
@@ -39,9 +45,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="SRE Incident Intake & Triage Agent powered by Gemini + PydanticAI",
+    description="SRE Incident Intake & Triage Agent powered by Gemini 2.5 Flash",
     lifespan=lifespan,
 )
+
+# ── Rate limiter middleware ────────────────────────────────────────────────
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── CORS ──────────────────────────────────────────────────────────────────
 app.add_middleware(

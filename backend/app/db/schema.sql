@@ -39,7 +39,7 @@ CREATE INDEX IF NOT EXISTS idx_incidents_severity ON incidents(severity);
 CREATE INDEX IF NOT EXISTS idx_incidents_created  ON incidents(created_at DESC);
 
 -- ──────────────────────────────────────────────
--- TICKETS (mocked Service Desk)
+-- TICKETS (local + Jira external reference)
 -- ──────────────────────────────────────────────
 CREATE SEQUENCE IF NOT EXISTS ticket_seq START 1000;
 
@@ -51,17 +51,24 @@ CREATE TABLE IF NOT EXISTS tickets (
     description  TEXT NOT NULL,
     priority     TEXT CHECK (priority IN ('P1','P2','P3','P4')),
     status       TEXT DEFAULT 'open' CHECK (status IN ('open','in_progress','resolved','closed')),
-    assigned_to  TEXT DEFAULT 'sre-team@company.com',
+    assigned_to  TEXT DEFAULT 'sre-team@agentx.local',
+    -- Jira external reference
+    jira_key     TEXT,
+    jira_url     TEXT,
     created_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     resolved_at  TIMESTAMP WITH TIME ZONE
 );
 
+-- Idempotent column additions for existing deployments
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS jira_key TEXT;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS jira_url TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_tickets_status     ON tickets(status);
 CREATE INDEX IF NOT EXISTS idx_tickets_incident   ON tickets(incident_id);
 
 -- ──────────────────────────────────────────────
--- NOTIFICATIONS (mocked Slack + Email)
+-- NOTIFICATIONS (real Slack webhook + SMTP email)
 -- ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS notifications (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),

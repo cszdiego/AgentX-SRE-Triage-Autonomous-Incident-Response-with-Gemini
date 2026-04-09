@@ -32,7 +32,7 @@
 | **LLM** | Google Gemini 2.5 Flash (`gemini-2.5-flash`) |
 | **Inputs** | Text (incident description), images (screenshots), log files (.txt/.log), video recordings (.mp4), reporter metadata |
 | **Outputs** | Severity classification (P1–P4), triage summary, root cause analysis, generated runbook, service desk ticket, Slack+Email notifications |
-| **Tools** | Gemini multimodal API, PostgreSQL (dedup queries, ticket creation), eShop code context loader, Langfuse trace SDK, notification service (mocked Slack+Email) |
+| **Tools** | Gemini multimodal API, PostgreSQL (dedup queries, ticket creation), eShop code context loader, Langfuse trace SDK, Jira REST API, Slack Incoming Webhook, SMTP (Mailhog/production) |
 
 ### Sub-Agent: Guardrail Scanner
 
@@ -67,16 +67,27 @@
 | **Outputs** | SSE events to browser (`GET /incidents/{id}/stream`); batch INSERT to `reasoning_steps` table on pipeline close |
 | **Tools** | `asyncio.Queue` (live stream), in-memory replay buffer, PostgreSQL `reasoning_steps` table |
 
+### Sub-Agent: Jira Integration Service
+
+| Field | Description |
+|-------|-------------|
+| **Role** | Creates real Jira issues via Atlassian REST API v3, persists the issue key and URL to the local tickets table |
+| **Type** | Autonomous (called in Stage 3 after local ticket creation) |
+| **LLM** | None (REST API) |
+| **Inputs** | Title, triage summary, root cause, runbook, severity, affected service, incident ID |
+| **Outputs** | Jira issue key (e.g., `SRE-42`), direct URL to issue (`https://site.atlassian.net/browse/SRE-42`) |
+| **Tools** | `httpx` HTTP client, Jira REST API v3 (`/rest/api/3/issue`), Basic Auth (email + API token), PostgreSQL tickets table |
+
 ### Sub-Agent: Notification Dispatcher
 
 | Field | Description |
 |-------|-------------|
-| **Role** | Sends mocked Slack and Email notifications at key pipeline stages |
+| **Role** | Sends real Slack webhook messages and SMTP emails at key pipeline stages (team alert on new incident, resolution email to reporter) |
 | **Type** | Autonomous |
 | **LLM** | None (template-based) |
-| **Inputs** | Incident metadata, ticket key, severity, triage summary |
-| **Outputs** | Formatted notifications persisted to DB (visible in Dashboard) |
-| **Tools** | PostgreSQL notifications table, templated message generator |
+| **Inputs** | Incident metadata, ticket key, Jira key/URL, severity, triage summary |
+| **Outputs** | Real Slack message to `#sre-alerts`; SMTP email via Mailhog (demo) or production SMTP; notifications persisted to DB |
+| **Tools** | `httpx` (Slack Incoming Webhook), `smtplib` (SMTP email), PostgreSQL notifications table |
 
 ---
 
@@ -126,14 +137,16 @@ User (Browser)
 │            ┌─────▼──────────────────────────────────────────┐  │
 │            │  STAGE 3: Create Ticket                         │  │
 │            │  ├── INSERT INTO tickets (SRE-XXXX key)         │  │
+│            │  ├── create_jira_issue() → Jira REST API       │  │
+│            │  ├── UPDATE tickets SET jira_key, jira_url      │  │
 │            │  └── [IF duplicate] → skip ticket creation      │  │
 │            └─────┬──────────────────────────────────────────┘  │
 │                  │                                              │
 │            ┌─────▼──────────────────────────────────────────┐  │
 │            │  STAGE 4: Notify Team                           │  │
-│            │  ├── notify_team() → Slack message (mocked)    │  │
-│            │  ├── notify_team() → Email (mocked)            │  │
-│            │  └── INSERT INTO notifications                  │  │
+│            │  ├── notify_team() → Slack webhook (real)      │  │
+│            │  ├── notify_team() → SMTP email (real)         │  │
+│            │  └── INSERT INTO notifications (audit log)      │  │
 │            └─────┬──────────────────────────────────────────┘  │
 │                  │                                              │
 │          [Human reviews Dashboard, clicks RESOLVE]              │
@@ -142,7 +155,7 @@ User (Browser)
 │            │  STAGE 5: Resolve + Reporter Notification       │  │
 │            │  ├── PATCH /api/v1/tickets/{id}/resolve         │  │
 │            │  ├── Update ticket + incident status            │  │
-│            │  └── notify_reporter_resolved() → email (mock) │  │
+│            │  └── notify_reporter_resolved() → SMTP email   │  │
 │            └────────────────────────────────────────────────┘  │
 │                                                                 │
 │  [Langfuse SDK traces EVERY stage with spans + generations]    │
@@ -360,7 +373,7 @@ See `/evidence/` directory:
 - Triage agent has NO write tools — it only reads code context and produces a structured TriageResult
 - DB writes happen outside the AI agent (in Python code after receiving the AI result)
 - No shell execution, no file deletion, no network calls from within the agent
-- Notification service is purely append-only to DB (mocked — no actual SMTP/Slack API calls)
+- Notification service: Slack calls via `httpx` POST to Incoming Webhook; Email calls via `smtplib` SMTP — both isolated in try/except, pipeline continues on failure
 
 **Data handling:**
 - API keys stored in environment variables only (never in code or DB)
@@ -448,5 +461,6 @@ See full analysis in **[SCALING.md](SCALING.md)**.
 **Key technical decisions:**
 - **Gemini over Anthropic/OpenAI for multimodal** — Gemini 2.5 Flash has excellent image and log file understanding, native multipart API support, and a generous free tier that reduces operational cost during hackathon.
 - **PydanticAI over LangChain** — LangChain adds significant abstraction overhead. PydanticAI gives us clean, typed, Python-native agents without the dependency complexity. For a single-agent system, it was the right tradeoff.
-- **Mocked notifications as DB records** — Storing Slack/Email notifications in PostgreSQL instead of calling real APIs made the demo more reliable (no external dependencies), gave us a visual audit trail in the Dashboard, and satisfied the "demoable" requirement from the technical guidelines.
+- **Real integrations with graceful degradation** — Jira, Slack, and SMTP calls are all wrapped in try/except with fallback logging. A Jira timeout never blocks the triage pipeline; the local `SRE-XXXX` ticket is always created. This gives the reliability of mocks with the demoability of real systems.
+- **Mailhog for email demo** — Using Mailhog as the local SMTP catcher lets us show real email delivery in a browser UI (`localhost:8025`) without needing production email credentials. Swapping to a production SMTP provider requires only changing `SMTP_HOST`/`SMTP_PORT` in `.env`.
 - **No LLM for dedup** — We pass recent incidents as text context to the AI rather than doing embedding similarity. This adds a few hundred tokens to each prompt but avoids the complexity of a vector database. At MVP scale with a 48h window and <100 incidents, this is the simpler and more maintainable approach.

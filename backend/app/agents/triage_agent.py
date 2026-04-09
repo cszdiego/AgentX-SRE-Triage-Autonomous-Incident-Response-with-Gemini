@@ -22,6 +22,7 @@ from app.core.security import check_guardrails, sanitize_for_prompt
 from app.core.streaming import emit, close_stream
 from app.models.incident import TriageResult
 from app.services.code_context import get_relevant_context
+from app.services.jira_service import create_jira_issue
 from app.services.langfuse_service import TraceContext
 from app.services.notification_service import notify_team
 
@@ -273,7 +274,23 @@ Produce the JSON triage output now."""
             await emit(incident_id, f"Gemini response received — {input_tokens} input / {output_tokens} output tokens", stage="triage", icon="sparkles")
             await emit(incident_id, f"Severity classified: {triage.severity} | Service: {triage.affected_service}", stage="triage", icon="alert-triangle")
             if triage.is_duplicate:
-                await emit(incident_id, f"DUPLICATE DETECTED — similarity {triage.similarity_score:.0%}", detail="Suppressing ticket creation.", stage="triage", icon="copy")
+                # Fetch the original incident's ticket key to surface it in the UI
+                orig_ticket = None
+                if triage.duplicate_of:
+                    orig_ticket_row = fetchall(
+                        "SELECT ticket_key, jira_key FROM tickets WHERE incident_id = %s LIMIT 1",
+                        (triage.duplicate_of,),
+                    )
+                    if orig_ticket_row:
+                        orig_ticket = orig_ticket_row[0]
+                orig_ref = f" → original ticket: {orig_ticket['ticket_key']}" if orig_ticket else ""
+                jira_ref = f" (Jira: {orig_ticket['jira_key']})" if orig_ticket and orig_ticket.get("jira_key") else ""
+                await emit(
+                    incident_id,
+                    f"DUPLICATE DETECTED — similarity {triage.similarity_score:.0%}{orig_ref}{jira_ref}",
+                    detail="Suppressing ticket creation. See original incident for details.",
+                    stage="triage", icon="copy",
+                )
             else:
                 await emit(incident_id, "No duplicate found — unique incident confirmed", stage="triage", icon="check")
 
@@ -370,12 +387,41 @@ Produce the JSON triage output now."""
         ticket_key = ticket["ticket_key"]
         result["ticket"] = {"id": ticket_id, "key": ticket_key}
         tc.metadata["ticket_key"] = ticket_key
-        await emit(incident_id, f"Ticket {ticket_key} created — assigned to {settings.SRE_TEAM_EMAIL}", stage="ticket", icon="check")
+        await emit(incident_id, f"Internal ticket {ticket_key} created — assigned to {settings.SRE_TEAM_EMAIL}", stage="ticket", icon="check")
         logger.info("Ticket created: %s | incident=%s", ticket_key, incident_id)
+
+        # Create real Jira issue
+        await emit(incident_id, "Creating Jira issue via REST API...", stage="ticket", icon="layers")
+        jira_result = create_jira_issue(
+            title=title,
+            triage_summary=triage.triage_summary,
+            root_cause=triage.root_cause,
+            runbook=triage.runbook,
+            severity=triage.severity,
+            affected_service=triage.affected_service,
+            reporter_email=reporter_email,
+            incident_id=incident_id,
+        )
+        jira_key = jira_url = None
+        if jira_result:
+            jira_key = jira_result["key"]
+            jira_url = jira_result["url"]
+            # Persist Jira reference in tickets table
+            execute(
+                "UPDATE tickets SET jira_key=%s, jira_url=%s WHERE id=%s",
+                (jira_key, jira_url, ticket_id),
+            )
+            result["ticket"]["jira_key"] = jira_key
+            result["ticket"]["jira_url"] = jira_url
+            tc.metadata["jira_key"] = jira_key
+            await emit(incident_id, f"Jira issue {jira_key} created", detail=jira_url, stage="ticket", icon="check")
+            logger.info("Jira issue created: %s → %s", jira_key, jira_url)
+        else:
+            await emit(incident_id, "Jira unavailable — internal ticket only", stage="ticket", icon="alert-triangle")
 
     # ── STAGE 4: Notify Team ─────────────────────────────────────────────
     with TraceContext(trace_id, incident_id, "notify") as tc:
-        await emit(incident_id, "Sending Slack alert to #sre-alerts...", stage="notify", icon="bell")
+        await emit(incident_id, "Sending real Slack alert to #sre-alerts...", stage="notify", icon="bell")
         notif_result = notify_team(
             incident_id=incident_id,
             ticket_id=ticket_id,
@@ -385,8 +431,10 @@ Produce the JSON triage output now."""
             triage_summary=triage.triage_summary,
             affected_service=triage.affected_service,
             reporter_email=reporter_email,
+            jira_key=jira_key,
+            jira_url=jira_url,
         )
-        await emit(incident_id, "Email confirmation sent to reporter", stage="notify", icon="mail")
+        await emit(incident_id, f"Email dispatched via SMTP → {settings.SRE_TEAM_EMAIL}", stage="notify", icon="mail")
         result["notifications"] = notif_result
         tc.metadata.update(notif_result)
 

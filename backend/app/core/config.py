@@ -5,7 +5,7 @@ from functools import lru_cache
 class Settings(BaseSettings):
     # App
     APP_NAME: str = "AgentX SRE-Triage"
-    APP_VERSION: str = "1.0.0"
+    APP_VERSION: str = "1.1.0"
     DEBUG: bool = False
 
     # Database
@@ -21,12 +21,21 @@ class Settings(BaseSettings):
     LANGFUSE_SECRET_KEY: str = ""
     LANGFUSE_BASE_URL: str = "https://us.cloud.langfuse.com"
 
-    # Mocked integrations
-    SLACK_WEBHOOK_URL: str = "http://mock-slack/webhook"
-    JIRA_PROJECT_KEY: str = "SRE"
-    NOTIFY_EMAIL_FROM: str = "sre-agent@company.com"
-    SRE_TEAM_EMAIL: str = "sre-team@company.com"
+    # Slack (real Incoming Webhook)
+    SLACK_WEBHOOK_URL: str = ""
     SRE_SLACK_CHANNEL: str = "#sre-alerts"
+
+    # Jira (real REST API)
+    JIRA_SITE_URL: str = ""
+    JIRA_USER_EMAIL: str = ""
+    JIRA_API_TOKEN: str = ""
+    JIRA_PROJECT_KEY: str = "SRE"
+
+    # Email / SMTP (Mailhog in Docker, real SMTP in production)
+    SMTP_HOST: str = "mailhog"
+    SMTP_PORT: int = 1025
+    SMTP_FROM: str = "sre-agent@agentx.local"
+    SRE_TEAM_EMAIL: str = "sre-team@agentx.local"
 
     # Uploads
     UPLOAD_DIR: str = "/app/uploads"

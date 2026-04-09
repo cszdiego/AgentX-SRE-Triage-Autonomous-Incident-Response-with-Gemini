@@ -7,6 +7,7 @@ import {
   FileText, CheckCircle2, Bell, Activity, Shield, Code2,
   Cpu, Loader2, Terminal, Database, Image, Video,
   Search, Layers, Sparkles, XCircle, CheckCheck,
+  ExternalLink, Copy, MessageSquare,
 } from 'lucide-react'
 import {
   getIncident, getIncidentNotifications, getIncidentTraces,
@@ -446,6 +447,58 @@ export default function IncidentDetailPage() {
             </>
           )}
 
+          {/* Duplicate notice */}
+          {incident?.status === 'duplicate' && (
+            <div className="terminal-panel p-4 border-l-2 border-acid-amber/60">
+              <div className="flex items-center gap-2 mb-1">
+                <Copy className="w-4 h-4 text-acid-amber" />
+                <span className="text-xs font-mono text-acid-amber uppercase tracking-wider font-bold">Duplicate Incident</span>
+              </div>
+              <p className="text-xs font-mono text-gray-400">
+                This incident was automatically detected as a duplicate.
+                {incident.duplicate_of && (
+                  <> Original incident ID: <span className="text-acid-cyan">{incident.duplicate_of}</span></>
+                )}
+                {incident.similarity_score && (
+                  <span className="ml-2 text-gray-600">({Math.round(incident.similarity_score * 100)}% similarity)</span>
+                )}
+              </p>
+            </div>
+          )}
+
+          {/* External Systems — Jira */}
+          {!isTriaging && incident && incident.jira_key && (
+            <div className="terminal-panel p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <ExternalLink className="w-4 h-4 text-blue-400" />
+                <span className="text-xs font-mono text-blue-400 uppercase tracking-wider">External Systems</span>
+              </div>
+              <div className="flex items-center gap-4 p-3 bg-blue-950/30 rounded border border-blue-800/30">
+                {/* Jira logo (SVG inline) */}
+                <svg className="w-7 h-7 flex-shrink-0" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M28.09 1.68H15.75a5.18 5.18 0 0 0-5.18 5.18v1.66H5.18A5.18 5.18 0 0 0 0 13.7v12.34A5.18 5.18 0 0 0 5.18 31.2h12.34A5.18 5.18 0 0 0 22.7 26.04V24.4h5.39a5.18 5.18 0 0 0 5.18-5.18V6.86A5.18 5.18 0 0 0 28.09 1.68Zm-10.86 24.36a2.41 2.41 0 0 1-2.41 2.41H5.18a2.41 2.41 0 0 1-2.41-2.41V13.7a2.41 2.41 0 0 1 2.41-2.41h5.39v7.93a5.18 5.18 0 0 0 5.18 5.18h1.48v1.54Zm13.04-6.82a2.41 2.41 0 0 1-2.41 2.41H15.75a2.41 2.41 0 0 1-2.41-2.41V6.86a2.41 2.41 0 0 1 2.41-2.41h12.34a2.41 2.41 0 0 1 2.41 2.41v12.36Z" fill="#0052CC"/>
+                </svg>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-mono text-gray-400 mb-0.5">Jira Issue</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-mono font-bold text-white">{incident.jira_key}</span>
+                    <span className="px-1.5 py-0.5 text-[10px] font-mono bg-blue-900/40 text-blue-300 rounded border border-blue-700/30">OPEN</span>
+                  </div>
+                  <p className="text-[10px] font-mono text-gray-600 mt-0.5 truncate">{incident.jira_url}</p>
+                </div>
+                <a
+                  href={incident.jira_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-mono rounded transition-colors whitespace-nowrap"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  Open in Jira
+                </a>
+              </div>
+            </div>
+          )}
+
           {/* Original report */}
           {incident && (
             <div className="terminal-panel p-5">
@@ -501,29 +554,56 @@ export default function IncidentDetailPage() {
             </div>
           )}
 
-          {/* Notifications */}
+          {/* Communications */}
           {notifications.length > 0 && (
             <div className="terminal-panel p-5">
               <div className="flex items-center gap-2 mb-4">
                 <Bell className="w-4 h-4 text-acid-cyan" />
                 <span className="text-xs font-mono text-acid-cyan uppercase tracking-wider">
-                  Notifications ({notifications.length})
+                  Communications
                 </span>
+                <span className="ml-auto text-[10px] font-mono text-gray-600">{notifications.length} dispatched</span>
               </div>
               <div className="space-y-3">
-                {notifications.map(n => (
-                  <div key={n.id} className="bg-terminal-bg rounded border border-terminal-border p-3">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className={`text-xs font-mono font-bold ${n.channel === 'slack' ? 'text-acid-green' : 'text-acid-cyan'}`}>
-                        [{n.channel.toUpperCase()}]
-                      </span>
-                      <span className="text-xs font-mono text-gray-500">{n.type}</span>
-                      <span className="ml-auto text-xs font-mono text-gray-600">→ {n.recipient}</span>
+                {notifications.map(n => {
+                  const isSlack = n.channel === 'slack'
+                  const isDelivered = n.status === 'delivered'
+                  const typeLabel = n.type === 'team_alert' ? 'Team Alert' : n.type === 'resolved' ? 'Resolution' : n.type
+                  return (
+                    <div key={n.id} className={`rounded border p-3 ${isDelivered ? 'bg-terminal-bg border-terminal-border' : 'bg-red-950/20 border-red-800/30'}`}>
+                      <div className="flex items-center gap-2 mb-2">
+                        {isSlack ? (
+                          /* Slack icon */
+                          <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z" fill="#E01E5A"/>
+                          </svg>
+                        ) : (
+                          <Mail className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                        )}
+                        <span className={`text-xs font-mono font-bold ${isSlack ? 'text-[#E01E5A]' : 'text-blue-400'}`}>
+                          {isSlack ? 'Slack' : 'Email'}
+                        </span>
+                        <span className="text-[10px] font-mono text-gray-600 bg-terminal-bg px-1.5 py-0.5 rounded border border-terminal-border">
+                          {typeLabel}
+                        </span>
+                        <span className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded ${isDelivered ? 'text-acid-green bg-acid-green/10 border border-acid-green/20' : 'text-red-400 bg-red-900/20 border border-red-700/30'}`}>
+                          {isDelivered ? 'DELIVERED' : 'FAILED'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 mb-2">
+                        <span className="text-[10px] font-mono text-gray-600">TO:</span>
+                        <span className="text-[10px] font-mono text-gray-400">{n.recipient}</span>
+                        <span className="ml-auto text-[10px] font-mono text-gray-700">
+                          {new Date(n.created_at).toLocaleTimeString()}
+                        </span>
+                      </div>
+                      {n.subject && (
+                        <p className="text-xs font-semibold text-gray-300 mb-1 truncate">{n.subject}</p>
+                      )}
+                      <pre className="text-[10px] text-gray-600 font-mono whitespace-pre-wrap line-clamp-3 overflow-hidden">{n.body}</pre>
                     </div>
-                    {n.subject && <p className="text-xs font-semibold text-gray-300 mb-1">{n.subject}</p>}
-                    <pre className="text-xs text-gray-500 font-mono whitespace-pre-wrap line-clamp-4">{n.body}</pre>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}

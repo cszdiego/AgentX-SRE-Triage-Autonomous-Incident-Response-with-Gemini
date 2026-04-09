@@ -1,4 +1,4 @@
-# SCALING.md — AgentX SRE-Triage
+# SCALING.md — AgentX SRE-Triage v1.1
 
 ## Current Architecture Capacity
 
@@ -15,9 +15,15 @@
 ## Bottlenecks Identified
 
 ### 1. Gemini API Rate Limits (Primary Bottleneck)
-- **Problem:** Gemini free tier allows ~60 requests/minute. Each triage = 1 request.
-- **Impact:** At >1 incident/second, requests will be throttled.
-- **Mitigation:** Each triage runs in an async background task with the HTTP response returned immediately (202 Accepted). The UI polls for results.
+- **Problem:** Gemini free tier allows ~60 requests/minute. Each triage = 1 multimodal request.
+- **Impact:** At >1 incident/second, new requests queue behind the rate limit.
+- **Current mitigations (already implemented):**
+  - `202 Accepted` pattern: HTTP response is immediate; triage runs in background — no user-facing timeout
+  - **Dedup suppression:** Duplicate incidents detected in Stage 2 skip the Gemini call entirely (0 tokens spent)
+  - **Fallback model:** On `RESOURCE_EXHAUSTED` / 429 errors, the pipeline automatically retries with `gemini-2.0-flash`
+  - **Rate limiting on `/incidents`:** SlowAPI limits intake to 10 req/min per IP, preventing burst overload
+- **Stage 2 mitigation:** Rotate across multiple Gemini API keys with round-robin load balancing
+- **Stage 3 mitigation:** Decouple via message queue — worker pods consume at Gemini's rate regardless of API traffic spikes
 
 ### 2. Single PostgreSQL Instance
 - **Problem:** No read replicas. All reads/writes go to one instance.
@@ -130,6 +136,21 @@ For S3 migration, change `UPLOAD_DIR` to an S3 bucket path and add `boto3` + `py
 ## Observability at Scale
 
 - **Langfuse** handles distributed tracing natively (no changes needed for horizontal scaling)
+- **`/api/v1/health/metrics`** endpoint exposes structured JSON metrics: incidents processed, avg triage time, guardrail blocks, Jira tickets created, Slack/email delivery counts
 - Add **Prometheus** metrics via `prometheus-fastapi-instrumentator` for pod-level metrics
 - Add **Grafana** dashboard for real-time incident pipeline throughput
 - Alert on: queue depth > 100, triage failure rate > 5%, P1 incident not triaged within 30s
+
+---
+
+## Real Integration Bottlenecks (v1.1 — Live Integrations)
+
+With real Slack, Jira, and SMTP now enabled, two additional bottlenecks emerge:
+
+| Integration | Limit | Current Handling |
+|-------------|-------|-----------------|
+| Slack Webhooks | 1 req/s per channel | Fire-and-forget in background; failure logged, pipeline continues |
+| Jira REST API | 10 req/s (Cloud) | Single call per incident; failure logged, local ticket still created |
+| SMTP (Mailhog/prod) | Mailhog: unlimited; prod SMTP: provider-dependent | Failure logged, DB record marks status='failed' for retry |
+
+All external calls use try/except isolation — a Jira timeout or Slack 429 never blocks the triage pipeline.

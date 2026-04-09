@@ -15,8 +15,8 @@ AgentX SRE-Triage is an autonomous incident management agent. When an engineer s
 3. **Cross-references** real .NET eShop microservice source code for grounded root-cause analysis
 4. **Classifies** severity P1–P4 based on business impact
 5. **Deduplicates** against the last 48 hours of incidents
-6. **Creates** a structured SRE ticket (SRE-XXXX format)
-7. **Notifies** the SRE team via Slack + email
+6. **Creates** a local SRE ticket (SRE-XXXX) and a **real Jira issue** via REST API
+7. **Notifies** the SRE team via **real Slack webhook** + **SMTP email** (Mailhog for demo)
 8. **Streams live reasoning** to the UI — engineers see every AI thought in real time
 9. **Closes the loop** — one-click resolve triggers automatic reporter notification
 
@@ -81,13 +81,15 @@ Second report for same Redis outage → AI detects >70% similarity → DUPLICATE
 |-------|-----------|
 | LLM | Google Gemini 2.5 Flash (multimodal: text + image + log + MP4) |
 | Agent Framework | PydanticAI 0.0.19 (structured output + validation) |
-| Backend | FastAPI 0.115 + Uvicorn (async, SSE streaming) |
+| Backend | FastAPI 0.115 + Uvicorn (async, SSE streaming, SlowAPI rate limiting) |
 | Database | PostgreSQL 16 (psycopg2-binary) |
-| Observability | Langfuse 2.57 (LLM traces, span telemetry, local fallback) |
+| Observability | Langfuse 2.57 (LLM traces, span telemetry, local fallback) + `/metrics` endpoint |
 | Frontend | Vite 6 + React 18 + Tailwind CSS (dark industrial theme) |
-| Security | 15-pattern regex guardrail engine + `sanitize_for_prompt()` |
+| Security | 15-pattern regex guardrail engine + `sanitize_for_prompt()` + rate limiting (10 req/min) |
+| Ticketing | **Jira Cloud REST API v3** — real issues created per incident |
+| Notifications | **Slack Incoming Webhook** (real) + **SMTP email** (Mailhog for demo) |
 | eShop Context | Microsoft eShop .NET microservices (RAG from real `.cs` source files) |
-| Containers | Docker Compose — postgres + backend + frontend/nginx |
+| Containers | Docker Compose — postgres + mailhog + backend + frontend/nginx |
 
 ---
 
